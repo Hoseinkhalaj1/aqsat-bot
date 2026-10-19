@@ -1,0 +1,17 @@
+# secrets — never commit
+config.php
+.env
+*.pem
+
+# runtime data
+backups/*
+logs/*
+tmp/*
+!backups/.htaccess
+!logs/.htaccess
+!tmp/.htaccess
+
+# build tooling
+miniapp/node_modules/
+*.zip
+.DS_Store

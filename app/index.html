@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>اقساط</title>
+<link rel="icon" href="data:,">
+<script>
+  // opened without trailing slash (…/app) → relative assets would 404
+  (function () {
+    var p = location.pathname;
+    if (!/\/$/.test(p) && !/\.html$/.test(p)) location.replace(p + '/' + location.search + location.hash);
+  })();
+  // show any startup error instead of a blank screen
+  window.__bootErr = function (msg) {
+    var el = document.getElementById('boot');
+    if (el) el.innerHTML = '<div style="color:#F87171;font-weight:700;margin-bottom:8px">خطا در اجرای اپ</div><div style="font-size:12px;direction:ltr;word-break:break-all;color:#9AA3B2">' + String(msg).replace(/</g, '&lt;') + '</div>';
+  };
+  window.addEventListener('error', function (e) { window.__bootErr((e.message || 'error') + (e.filename ? ' @ ' + e.filename.split('/').pop() + ':' + e.lineno : '')); });
+  window.addEventListener('unhandledrejection', function (e) { window.__bootErr(e.reason && e.reason.message || e.reason); });
+</script>
+<script src="./telegram-web-app.js"></script>
+<style>html,body{margin:0;background:#0B0D11}#boot{font-family:Tahoma,sans-serif;color:#9AA3B2;text-align:center;padding:40vh 24px 0;font-size:14px}</style>
+  <script type="module" crossorigin src="./assets/index-CIFb01q3.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-IZAl2uHY.css">
+</head>
+<body>
+<div id="app"><div id="boot">در حال بارگذاری…</div></div>
+</body>
+</html>

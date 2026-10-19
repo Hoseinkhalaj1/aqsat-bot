@@ -1,0 +1,1 @@
+{"name":"aqsat-miniapp","private":true,"type":"module","scripts":{"build":"vite build","dev":"vite"},"dependencies":{"sortablejs":"1.15","vazirmatn":"^33.0.3","vue":"3.5","vue-router":"^4.6.4"},"devDependencies":{"@vitejs/plugin-vue":"^6.0.10","vite":"^7.3.7"}}
