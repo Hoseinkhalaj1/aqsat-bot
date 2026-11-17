@@ -42,12 +42,14 @@
         </div>
         <div class="lbl">{{ plan.free < 0 ? 'کسری! ' : '' }}از {{ toman(plan.income) }} دریافتی این ماه</div>
         <div class="bar">
-          <div :style="{ width: w(plan.used) + '%', background: 'var(--blue)' }"></div>
+          <div :style="{ width: w(plan.spent) + '%', background: 'var(--faint)' }"></div>
+          <div :style="{ width: w(plan.pending) + '%', background: 'var(--blue)' }"></div>
           <div :style="{ width: w(plan.unassigned_sum) + '%', background: 'var(--amber)' }"></div>
           <div :style="{ width: w(Math.max(0, plan.free)) + '%', background: 'var(--mint)' }"></div>
         </div>
-        <div class="g3">
-          <div class="col"><span class="lbl"><span class="dot" style="background: var(--blue)"></span>کنار گذاشته</span><b>{{ mil(plan.used) }}</b></div>
+        <div class="g2" style="row-gap: 12px">
+          <div class="col"><span class="lbl"><span class="dot" style="background: var(--blue)"></span>باید کنار بماند</span><b class="c-blue">{{ mil(plan.pending) }}</b></div>
+          <div class="col"><span class="lbl"><span class="dot" style="background: var(--faint)"></span>پرداخت شد از دریافتی‌ها</span><b>{{ mil(plan.spent) }}</b></div>
           <router-link to="/income" class="col" style="color: inherit"><span class="lbl"><span class="dot" style="background: var(--amber)"></span>بدون منبع</span><b class="c-amber">{{ mil(plan.unassigned_sum) }}</b></router-link>
           <div class="col"><span class="lbl"><span class="dot" style="background: var(--mint)"></span>آزاد</span><b class="c-mint">{{ mil(Math.max(0, plan.free)) }}</b></div>
         </div>
@@ -66,7 +68,7 @@
               <b :class="o.free < 0 ? 'c-red' : 'c-mint'" style="font-size: 16px">{{ mil(Math.abs(o.free)).replace(' م', '') }}</b>
               <span style="font-size: 10px; color: var(--muted)">{{ o.free < 0 ? 'کسری' : (Math.abs(o.free) >= 1e6 ? 'میلیون آزاد' : 'آزاد') }}</span>
             </Ring>
-            <div class="lbl" style="text-align: center">{{ fa(new Set(o.items.map((i) => i.ob)).size) }} مورد متصل، {{ mil(o.used) }}</div>
+            <div class="lbl" style="text-align: center">{{ fa(new Set(o.items.map((i) => i.ob)).size) }} مورد متصل<br>{{ o.pending ? 'کنار بگذار ' + mil(o.pending) : 'چیزی برای کنار گذاشتن نمانده' }}</div>
             <span class="chip" :class="occChip(o).c" style="align-self: center">{{ occChip(o).t }}</span>
           </router-link>
         </div>
@@ -149,7 +151,7 @@ function occChip(o) {
 }
 function fromSplit(m) {
   const by = {}
-  for (const x of m.dues) { const k = x.source ? ymName(x.source.ym) : 'بدون منبع'; by[k] = (by[k] || 0) + x.mine }
+  for (const x of m.dues) { if (!x.source && x.status === 'paid') continue; const k = x.source ? ymName(x.source.ym) : 'بدون منبع'; by[k] = (by[k] || 0) + x.mine }
   return Object.entries(by).map(([k, v]) => (k === 'بدون منبع' ? k : 'از دریافتی‌های ' + k) + ': ' + mil(v)).join('، ')
 }
 function openDue(g) {

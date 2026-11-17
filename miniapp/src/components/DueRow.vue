@@ -10,8 +10,12 @@
     </div>
     <div class="col" style="align-items: flex-end">
       <div class="b" style="font-size: 14px">{{ money(g.status === 'paid' ? g.mine : g.mine_left || g.mine) }}</div>
-      <span v-if="g.source" class="chip blue"><Icon v-if="g.source.manual" name="link" :size="11" />{{ sourceText(g.source) }}</span>
-      <span v-else class="chip" :class="{ amber: g.status !== 'paid' }">بدون منبع</span>
+      <div class="row" style="gap: 4px">
+        <span v-if="g.last" class="chip mint">قسط آخر</span>
+        <span v-if="g.source" class="chip blue"><Icon v-if="g.source.manual" name="link" :size="11" />{{ sourceText(g.source) }}</span>
+        <span v-else-if="g.prepaid" class="chip">پیش‌پرداخت</span>
+        <span v-else-if="g.status !== 'paid'" class="chip amber">بدون منبع</span>
+      </div>
     </div>
   </div>
 </template>

@@ -72,7 +72,7 @@ class Repo {
         [$jy, $jm, $jd] = J::fromG($first);
         $id = DB::insert("INSERT INTO obligations (user_id,type,title,category_id,creditor,period_unit,period_n,anchor_day,amount,shared_user_id,owner_share,created_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW())", [
-            $uid, $d['type'], $d['title'], $d['category_id'] ?: null, $d['creditor'] ?? null,
+            $uid, $d['type'], $d['title'], ($d['category_id'] ?? null) ?: null, $d['creditor'] ?? null,
             $d['period_unit'] ?? null, (int)($d['period_n'] ?? 1), $jd, (int)($d['amount'] ?? 0),
             $d['shared_user_id'] ?? null, (int)($d['owner_share'] ?? 100),
         ]);
@@ -147,8 +147,9 @@ class Repo {
             $last = DB::row("SELECT seq,due_date FROM dues WHERE obligation_id=? ORDER BY seq DESC LIMIT 1", [$id]);
             $seq = (int)$last['seq'];
             $date = $last['due_date'];
+            // nextDate($ob, $date, $seq) is the date of period $seq+1; skip the periods that passed while stopped
             while ($date < date('Y-m-d')) { $date = self::nextDate($ob, $date, $seq); $seq++; }
-            if ($date !== $last['due_date']) DB::q("INSERT INTO dues (obligation_id,seq,due_date,amount) VALUES (?,?,?,?)", [$id, $seq + 1, $date, $ob['amount']]);
+            if ($seq > (int)$last['seq']) DB::q("INSERT INTO dues (obligation_id,seq,due_date,amount) VALUES (?,?,?,?)", [$id, $seq, $date, $ob['amount']]);
             self::ensureRecurring($ob);
         } else self::checkDone($id);
     }

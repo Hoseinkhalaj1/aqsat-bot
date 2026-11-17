@@ -95,34 +95,45 @@ class Api {
         $mk = fn($o, $manual) => ['income_id' => $o['income_id'], 'title' => $o['title'], 'ym' => $o['ym'], 'date' => $o['date'], 'manual' => $manual];
         foreach ($p['occs'] as $o) foreach ($o['items'] as $it) $src[(int)$it['due']['id']] = $mk($o, $it['manual']);
         foreach ($p['prev'] as $it) $src[(int)$it['due']['id']] = $mk($it['source'], false);
-        $list = []; $total = 0; $left = 0;
-        foreach (Repo::duesInRange($uid, $from, $to) as $d) {
+        $list = []; $total = 0; $left = 0; $commit = 0;
+        $rows = Repo::duesInRange($uid, $from, $to);
+        $maxSeq = [];
+        if ($rows) {
+            $ids = implode(',', array_unique(array_map(fn($d) => (int)$d['obligation_id'], $rows)));
+            foreach (DB::all("SELECT obligation_id, MAX(seq) m FROM dues WHERE obligation_id IN ($ids) GROUP BY obligation_id") as $r) $maxSeq[(int)$r['obligation_id']] = (int)$r['m'];
+        }
+        foreach ($rows as $d) {
             if ($d['ob_status'] === 'stopped' && $d['status'] !== 'paid') continue;
             $o = self::dueOut($d);
             $o['source'] = $src[(int)$d['id']] ?? null;
+            // paid before this month even started (early payment / settled loan): not a commitment of this month
+            $o['prepaid'] = $d['status'] === 'paid' && substr((string)$d['paid_at'], 0, 10) < $from;
+            $o['last'] = $d['type'] === 'loan' && (int)$d['seq'] === ($maxSeq[(int)$d['obligation_id']] ?? 0);
             $list[] = $o; $total += $o['mine']; $left += $o['mine_left'];
+            if (!$o['prepaid']) $commit += $o['mine'];
         }
-        return ['jy' => $jy, 'jm' => $jm, 'dues' => $list, 'total' => $total, 'left' => $left];
+        return ['jy' => $jy, 'jm' => $jm, 'dues' => $list, 'total' => $total, 'left' => $left, 'commit' => $commit];
     }
 
     private static function planOut(int $jy, int $jm): array {
         $uid = self::$uid; $ym = J::ym($jy, $jm);
         $p = Plan::compute($uid, $jy, $jm);
-        $occs = []; $in = 0; $used = 0;
+        $occs = []; $in = 0; $used = 0; $pending = 0;
         foreach ($p['occs'] as $o) {
-            $items = array_map(fn($it) => self::dueOut($it['due']) + ['alloc' => $it['amount'], 'manual' => $it['manual']], $o['items']);
+            $items = array_map(fn($it) => self::dueOut($it['due']) + ['alloc' => $it['amount'], 'left' => $it['left'], 'manual' => $it['manual']], $o['items']);
             usort($items, fn($a, $b) => strcmp($a['date'], $b['date']));
             $dep = Deposit::get($uid, $o['income_id'], $ym);
             $occs[] = ['income_id' => $o['income_id'], 'title' => $o['title'], 'ym' => $ym, 'date' => $o['date'], 'amount' => $o['amount'],
-                'overridden' => $o['overridden'], 'used' => $o['used'], 'free' => $o['amount'] - $o['used'], 'items' => $items,
+                'overridden' => $o['overridden'], 'used' => $o['used'], 'pending' => $o['pending'], 'spent' => $o['used'] - $o['pending'],
+                'free' => $o['amount'] - $o['used'], 'items' => $items,
                 'deposited' => (bool)$dep, 'set_aside' => Deposit::setAside($uid, $o['income_id'], $ym)];
-            $in += $o['amount']; $used += $o['used'];
+            $in += $o['amount']; $used += $o['used']; $pending += $o['pending'];
         }
         $un = array_map(fn($d) => self::dueOut($d), $p['unassigned']);
-        $unSum = array_sum(array_column($un, 'mine'));
+        $unSum = array_sum(array_column($un, 'mine_left'));
         $prev = array_map(fn($it) => self::dueOut($it['due']) + ['alloc' => $it['amount'], 'source' => ['title' => $it['source']['title'], 'ym' => $it['source']['ym'], 'date' => $it['source']['date']]], $p['prev']);
         return ['jy' => $jy, 'jm' => $jm, 'occs' => $occs, 'unassigned' => $un, 'prev' => $prev,
-            'income' => $in, 'used' => $used, 'unassigned_sum' => $unSum, 'free' => $in - $used - $unSum];
+            'income' => $in, 'used' => $used, 'pending' => $pending, 'spent' => $used - $pending, 'unassigned_sum' => $unSum, 'free' => $in - $used - $unSum];
     }
 
     private static function afterPay(array $d, int $amt) {
@@ -413,7 +424,7 @@ class Api {
             $ym = J::ym($y, $m);
             $inc = 0; foreach (Plan::incomes($uid) as $i) $inc += Plan::amountFor($i, $ym);
             $mm = self::monthDues($y, $m);
-            $fc[] = ['jy' => $y, 'jm' => $m, 'income' => $inc, 'due' => $mm['total'], 'free' => $inc - $mm['total']];
+            $fc[] = ['jy' => $y, 'jm' => $m, 'income' => $inc, 'due' => $mm['commit'], 'free' => $inc - $mm['commit']];
         }
         // on-time ratio, last 6 months
         [$sy, $sm] = self::shiftYm(-5);

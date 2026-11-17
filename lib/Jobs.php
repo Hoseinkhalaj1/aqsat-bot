@@ -82,6 +82,11 @@ class Reminders {
         $t .= "💰 مبلغ: <b>" . U::toman($rem) . "</b>" . ($sh < 1 ? "\n👥 سهم شما: " . U::toman($rem * $sh) : '') . "\n";
         $t .= "🗂 " . U::h(Repo::catLabel($d['category_id'] ? (int)$d['category_id'] : null));
         if (!empty($d['creditor'])) $t .= "\n👤 " . U::h($d['creditor']);
+        if (Plan::incomes($uid)) {
+            $src = Plan::sourceOf($uid, $d);
+            if ($src) { [$sy, $sm] = array_map('intval', explode('-', $src['ym'])); $t .= "\n🔗 از دریافتی: " . U::h($src['title']) . ' ' . J::MONTHS[$sm]; }
+            else $t .= "\n⚪️ به هیچ دریافتی وصل نیست";
+        }
         return $t;
     }
 

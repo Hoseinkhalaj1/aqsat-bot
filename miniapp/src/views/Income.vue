@@ -18,7 +18,7 @@
     <template v-if="p">
       <div class="g3">
         <div class="card tight col"><span class="lbl">دریافتی</span><b style="font-size: 17px">{{ mil(p.income) }}</b></div>
-        <div class="card tight col"><span class="lbl">کنار گذاشته</span><b class="c-blue" style="font-size: 17px">{{ mil(p.used) }}</b></div>
+        <div class="card tight col"><span class="lbl">باید کنار بماند</span><b class="c-blue" style="font-size: 17px">{{ mil(p.pending) }}</b></div>
         <div class="card tight col"><span class="lbl">{{ p.free < 0 ? 'کسری' : 'آزاد' }}</span><b :class="p.free < 0 ? 'c-red' : 'c-mint'" style="font-size: 17px">{{ mil(Math.abs(p.free)) }}</b></div>
       </div>
 
@@ -45,7 +45,7 @@
         <div class="col dz" style="gap: 8px" :data-income="o.income_id" :ref="(el) => setList(el)">
           <div v-for="(it, i) in groupItems(o.items)" :key="it.ob + '-' + i" class="it" :data-ob="it.ob" @click="pick(it)">
             <span class="drag" aria-hidden="true"><Icon name="drag" :size="16" /></span>
-            <span class="sw" :style="{ background: COLORS[i % COLORS.length] }"></span>
+            <span class="sw" :style="{ background: it.paidAll ? 'var(--faint)' : COLORS[i % COLORS.length] }"></span>
             <div class="col grow" style="gap: 1px">
               <b class="ell" style="font-size: 14px">{{ it.title }}<span v-if="it.n > 1"> × {{ fa(it.n) }}</span><span v-if="it.shared" class="lbl"> (سهم {{ fa(it.share) }}٪)</span></b>
               <span class="lbl">{{ it.dates }}<template v-if="it.paidAll">، پرداخت شد</template></span>
@@ -58,12 +58,13 @@
           <div v-if="!o.items.length" class="lbl dropHint">موردی وصل نیست — اقساط را اینجا بکشید</div>
         </div>
         <div class="between" style="border-top: 1px solid var(--line); padding-top: 12px">
-          <div class="col"><span class="lbl">کنار بگذار</span><b class="c-blue" style="font-size: 16px">{{ money(o.used) }}</b></div>
+          <div class="col"><span class="lbl">باید کنار بماند</span><b class="c-blue" style="font-size: 16px">{{ money(o.pending) }}</b>
+            <span v-if="o.spent" class="lbl">پرداخت‌شده از این واریز: {{ money(o.spent) }}</span></div>
           <div class="col" style="align-items: flex-end"><span class="lbl">{{ o.free < 0 ? 'کسری' : 'آزاد برای خرج' }}</span><b :class="o.free < 0 ? 'c-red' : 'c-mint'" style="font-size: 20px">{{ money(Math.abs(o.free)) }}</b></div>
         </div>
         <div class="row">
           <button v-if="!o.deposited" class="btn amber grow" @click="dep = { income_id: o.income_id, title: o.title, ym: o.ym, date: o.date, amount: o.amount }">ثبت واریز</button>
-          <button v-if="!o.set_aside && o.items.length" class="btn blue grow" @click="aside(o)">کنار گذاشتم</button>
+          <button v-if="!o.set_aside && o.pending > 0" class="btn blue grow" @click="aside(o)">کنار گذاشتم</button>
           <button v-else-if="o.set_aside" class="btn ghost grow sm" @click="aside(o, true)">برگرداندن «کنار گذاشته»</button>
         </div>
       </section>
@@ -158,7 +159,7 @@ function groupItems(items) {
 }
 function segs(o) {
   const tot = Math.max(o.amount, o.used) || 1
-  const s = groupItems(o.items).map((it, i) => ({ w: (it.alloc / tot) * 100, c: COLORS[i % COLORS.length] }))
+  const s = groupItems(o.items).map((it, i) => ({ w: (it.alloc / tot) * 100, c: it.paidAll ? 'var(--faint)' : COLORS[i % COLORS.length] }))
   if (o.free > 0) s.push({ w: (o.free / tot) * 100, c: 'var(--mint)' })
   return s
 }

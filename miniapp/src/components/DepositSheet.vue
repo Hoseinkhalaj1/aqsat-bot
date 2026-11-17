@@ -9,7 +9,7 @@
       <div class="between"><span class="lbl">{{ occ.title }}، {{ ymName(occ.ym, true) }}</span><b>{{ toman(occ.amount) }}</b></div>
       <div v-for="it in open" :key="it.id" class="sub between">
         <div class="col"><b style="font-size: 14px">{{ it.title }}</b><span class="lbl">سررسید {{ jd(it.date) }}، {{ rel(today, it.date) }}</span></div>
-        <b>{{ money(it.alloc) }}</b>
+        <b>{{ money(it.left) }}</b>
       </div>
       <div v-if="!open.length" class="empty">قسط پرداخت‌نشده‌ای به این واریز وصل نیست؛ همه‌اش آزاد است.</div>
       <div class="g2">
@@ -37,7 +37,7 @@ watch(() => p.prompt, async (v) => {
   if (v && p.quick) await deposit()
 })
 const open = computed(() => (occ.value?.items || []).filter((i) => i.status !== 'paid'))
-const openSum = computed(() => open.value.reduce((s, i) => s + i.alloc, 0))
+const openSum = computed(() => open.value.reduce((s, i) => s + i.left, 0))
 const close = () => emit('close')
 async function deposit() {
   busy.value = true

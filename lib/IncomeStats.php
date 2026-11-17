@@ -44,8 +44,8 @@ class Deposit {
         $kb = [];
         if ($items) {
             $t .= "🔒 <b>از این واریز کنار بگذارید:</b>\n";
-            foreach ($items as $it) $t .= '• ' . U::h($it['due']['title']) . ' — <b>' . U::toman($it['amount']) . '</b> (سررسید ' . J::fmt($it['due']['due_date']) . ', ' . U::relDay($it['due']['due_date']) . ")\n";
-            $sum = array_sum(array_column($items, 'amount'));
+            foreach ($items as $it) $t .= '• ' . U::h($it['due']['title']) . ' — <b>' . U::toman($it['left']) . '</b> (سررسید ' . J::fmt($it['due']['due_date']) . ', ' . U::relDay($it['due']['due_date']) . ")\n";
+            $sum = array_sum(array_column($items, 'left'));
             $free = $o['amount'] - $o['used'];
             $t .= "\n🔒 جمع کنار گذاشتن: <b>" . U::toman($sum) . "</b>\n" . ($free >= 0 ? '🟢 قابل خرج: <b>' . U::toman($free) . '</b>' : '⚠️ کسری: <b>' . U::toman(-$free) . '</b> — این واریز برای اقساط متصل کافی نیست.');
             if (!self::setAside($uid, (int)$inc['id'], $ym)) $kb[] = [U::btn('✅ کنار گذاشتم', "i:sa:{$inc['id']}:$ym")];
@@ -107,7 +107,8 @@ trait BotIncomeStats {
             if ($free < 0) $def[] = U::h($o['title']) . ': ' . U::toman(-$free);
             $dep = Deposit::get($uid, $o['income_id'], $ym); $sa = Deposit::setAside($uid, $o['income_id'], $ym);
             $t .= "\n💵 <b>" . U::h($o['title']) . '</b> — ' . J::fmt($o['date']) . "\n";
-            $t .= '   مبلغ: ' . U::n($o['amount']) . ' | متصل: ' . U::n($o['used']) . ' (' . U::fa(count($o['items'])) . " مورد)\n";
+            $t .= '   مبلغ: ' . U::n($o['amount']) . ' | متصل: ' . U::fa(count($o['items'])) . " مورد\n";
+            $t .= '   🔒 کنار بگذار: ' . U::n($o['pending']) . ($o['used'] > $o['pending'] ? ' | ✅ پرداخت‌شده: ' . U::n($o['used'] - $o['pending']) : '') . "\n";
             $t .= '   ' . ($free >= 0 ? '🟢 مانده آزاد: <b>' . U::n($free) . '</b>' : '⚠️ <b>کسری: ' . U::n(-$free) . '</b>') . "\n";
             $t .= '   ' . U::bar($o['amount'] ? $o['used'] / $o['amount'] : 1, 10) . " تخصیص\n";
             $t .= '   ' . ($dep ? '💰 واریز شد (' . J::fmt($dep['at']) . ')' : ($o['date'] <= date('Y-m-d') ? '⏳ منتظر تأیید واریز' : '🗓 هنوز موعدش نرسیده'))
@@ -116,7 +117,7 @@ trait BotIncomeStats {
         }
         if (!$p['occs']) $t .= "\nهنوز درآمدی ثبت نکرده‌اید.\n";
         else {
-            $un = 0; foreach ($p['unassigned'] as $d) $un += $d['amount'] * Repo::share($d, $uid);
+            $un = 0; foreach ($p['unassigned'] as $d) $un += ($d['amount'] - $d['paid_amount']) * Repo::share($d, $uid);
             $bal = $in - $used - $un;
             $t .= "\n━━━━━━━━━━\n<b>خلاصه کل</b>\n💰 کل درآمد: " . U::toman($in) . "\n🔒 کل تخصیص: " . U::toman($used) . "\n";
             if ($un) $t .= "⚪️ بدون منبع: " . U::toman($un) . "\n";
@@ -144,23 +145,23 @@ trait BotIncomeStats {
         $t .= ($dep ? '💰 واریز شد' : '⏳ واریز ثبت نشده') . ' | ' . ($sa ? '🔒 کنار گذاشته شد' : '🔓 کنار گذاشته نشده') . "\n\n";
         $items = $o['items'];
         usort($items, fn($a, $b) => strcmp($a['due']['due_date'], $b['due']['due_date']));
-        $paid = 0;
+
         if ($items) {
             $t .= "<b>اقساط متصل به این واریز:</b>\n";
             foreach ($items as $it) {
                 $d = $it['due'];
-                $isPaid = $d['status'] === 'paid'; if ($isPaid) $paid += $it['amount'];
+                $isPaid = $d['status'] === 'paid';
                 $t .= ($isPaid ? '✅ ' : ($d['due_date'] < date('Y-m-d') ? '🔴 ' : '⏳ ')) . U::h($d['title']) . ($d['type'] === 'loan' ? ' (قسط ' . U::fa($d['seq']) . ')' : '')
                     . "\n     " . J::fmt($d['due_date']) . ' — ' . U::toman($it['amount']) . ($it['manual'] ? ' 🔗' : ' 🤖') . "\n";
             }
         } else $t .= "قسطی به این واریز متصل نیست.\n";
-        $t .= "\n🔒 جمع متصل: " . U::toman($o['used']) . "\n✅ از آن پرداخت‌شده: " . U::toman($paid) . "\n⏳ هنوز باید بماند: " . U::toman($o['used'] - $paid) . "\n";
+        $t .= "\n🔒 جمع متصل: " . U::toman($o['used']) . "\n✅ از آن پرداخت‌شده: " . U::toman($o['used'] - $o['pending']) . "\n⏳ هنوز باید کنار بماند: " . U::toman($o['pending']) . "\n";
         $t .= ($free >= 0 ? '🟢 مانده آزاد: <b>' . U::toman($free) . '</b>' : '⚠️ <b>کسری: ' . U::toman(-$free) . '</b>') . "\n" . U::bar($o['amount'] ? $o['used'] / $o['amount'] : 1, 12);
         $t .= "\n\n<i>🔗 دستی  🤖 خودکار</i>";
         $kb = [];
         $row = [];
         if (!$dep) $row[] = U::btn('💰 ثبت واریز', "i:dq:$id");
-        if (!$sa && $items) $row[] = U::btn('✅ کنار گذاشتم', "i:sa:$id:$ym");
+        if (!$sa && $o['pending'] > 0) $row[] = U::btn('✅ کنار گذاشتم', "i:sa:$id:$ym");
         if ($row) $kb[] = $row;
         $kb[] = [U::btn('◀️ ماه قبل', "i:sc:$id:" . ($off - 1)), U::btn('ماه بعد ▶️', "i:sc:$id:" . ($off + 1))];
         $kb[] = [U::btn('🔙 آمار', "i:st:$off")];
@@ -182,7 +183,7 @@ trait BotIncomeStats {
                 $f = $o['amount'] - $o['used'];
                 $per[] = U::h($o['title']) . ': ' . ($f >= 0 ? U::n($f) : '⚠️ -' . U::n(-$f));
             }
-            foreach ($p['unassigned'] as $d) $un += $d['amount'] * Repo::share($d, $uid);
+            foreach ($p['unassigned'] as $d) $un += ($d['amount'] - $d['paid_amount']) * Repo::share($d, $uid);
             $free = $in - $used - $un;
             if ($worst === null || $free < $worst[1]) $worst = [J::monthName($jy, $jm), $free];
             $t .= "\n<b>" . J::monthName($jy, $jm) . "</b> " . ($free >= 0 ? '🟢' : '⚠️') . "\n   درآمد " . U::n($in) . ' | تعهد ' . U::n($used + $un) . ' | آزاد <b>' . ($free >= 0 ? U::n($free) : '-' . U::n(-$free)) . "</b>\n";

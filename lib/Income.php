@@ -39,6 +39,20 @@ class Plan {
     public static function incomes(int $uid, bool $all = false): array {
         return DB::all("SELECT * FROM incomes WHERE user_id=?" . ($all ? '' : " AND active=1") . " ORDER BY day, id", [$uid]);
     }
+    /** income a due is set aside from: ['title','ym'] or null (cached per user and month) */
+    public static function sourceOf(int $uid, array $d): ?array {
+        static $cache = [];
+        [$jy, $jm] = J::fromG($d['due_date']);
+        $k = "$uid|$jy|$jm";
+        if (!isset($cache[$k])) {
+            $map = [];
+            $p = self::compute($uid, $jy, $jm);
+            foreach ($p['occs'] as $o) foreach ($o['items'] as $it) $map[(int)$it['due']['id']] = ['title' => $o['title'], 'ym' => $o['ym']];
+            foreach ($p['prev'] as $it) $map[(int)$it['due']['id']] = ['title' => $it['source']['title'], 'ym' => $it['source']['ym']];
+            $cache[$k] = $map;
+        }
+        return $cache[$k][(int)$d['id']] ?? null;
+    }
     public static function income(int $id, int $uid): ?array { return DB::row("SELECT * FROM incomes WHERE id=? AND user_id=?", [$id, $uid]); }
 
     /** amount of an income in a given jalali month (override or default) */
@@ -53,7 +67,7 @@ class Plan {
         foreach ($incomes as $inc) {
             $out[] = ['key' => $inc['id'] . '|' . $ym, 'income_id' => (int)$inc['id'], 'title' => $inc['title'], 'ym' => $ym,
                 'date' => J::toG($jy, $jm, min((int)$inc['day'], J::monthLen($jy, $jm))), 'amount' => self::amountFor($inc, $ym),
-                'overridden' => self::amountFor($inc, $ym) !== (int)$inc['amount'], 'items' => [], 'used' => 0];
+                'overridden' => self::amountFor($inc, $ym) !== (int)$inc['amount'], 'items' => [], 'used' => 0, 'pending' => 0];
         }
         return $out;
     }
@@ -79,41 +93,58 @@ class Plan {
             foreach ($occs as $k => $o) if ($o['income_id'] === $incId && $o['date'] <= $d && (!$best || $o['date'] > $occs[$best]['date'])) $best = $k;
             return $best;
         };
-        $assigned = [];
-        $add = function ($key, $d, $amt, $manual) use (&$occs, &$assigned) {
-            $occs[$key]['items'][] = ['due' => $d, 'amount' => $amt, 'manual' => $manual];
-            $occs[$key]['used'] += $amt; $assigned[$d['id']] = $key;
+        // payments per due, to know what was already paid before a given deposit
+        $pays = [];
+        if ($dues) {
+            $ids = implode(',', array_map(fn($d) => (int)$d['id'], $dues));
+            foreach (DB::all("SELECT due_id, amount, paid_at FROM payments WHERE due_id IN ($ids)") as $p) $pays[(int)$p['due_id']][] = $p;
+        }
+        /** user's share still needing money from a deposit made on $date (payments made before that date don't) */
+        $need = function (array $d, string $date) use ($pays, $uid): int {
+            $before = 0;
+            foreach ($pays[(int)$d['id']] ?? [] as $p) if (substr($p['paid_at'], 0, 10) < $date) $before += (int)$p['amount'];
+            return max(0, (int)round(($d['amount'] - $before) * Repo::share($d, $uid)));
+        };
+        $assigned = []; $prepaid = []; $amtOf = [];
+        $add = function ($key, $d, $amt, $manual) use (&$occs, &$assigned, &$amtOf, $uid) {
+            $left = (int)round(($d['amount'] - $d['paid_amount']) * Repo::share($d, $uid));
+            $occs[$key]['items'][] = ['due' => $d, 'amount' => $amt, 'left' => min($amt, max(0, $left)), 'manual' => $manual];
+            $occs[$key]['used'] += $amt; $assigned[$d['id']] = $key; $amtOf[$d['id']] = $amt;
         };
         // pass 1: manual assignments
         foreach ($dues as $d) {
             $inc = $map[(int)$d['obligation_id']] ?? null;
             if (!$inc) continue;
             $key = $latest($inc, $d['due_date']);
-            if ($key) $add($key, $d, (int)round($d['amount'] * Repo::share($d, $uid)), true);
+            if (!$key) continue;
+            $amt = $need($d, $occs[$key]['date']);
+            if ($amt > 0) $add($key, $d, $amt, true); else $prepaid[$d['id']] = true;
         }
         // pass 2: automatic
         if (($u['alloc_mode'] ?? 'auto') === 'auto') {
             foreach ($dues as $d) {
-                if (isset($assigned[$d['id']]) || isset($map[(int)$d['obligation_id']])) continue;
-                $amt = (int)round($d['amount'] * Repo::share($d, $uid));
+                if (isset($assigned[$d['id']]) || isset($prepaid[$d['id']]) || isset($map[(int)$d['obligation_id']])) continue;
                 $cands = [];
                 foreach ($incomes as $inc) { $k = $latest((int)$inc['id'], $d['due_date']); if ($k) $cands[] = $k; }
                 if (!$cands) continue;
                 usort($cands, fn($a, $b) => strcmp($occs[$b]['date'], $occs[$a]['date']));
+                // paid before the newest possible deposit: nothing to set aside
+                if ($need($d, $occs[$cands[0]]['date']) <= 0) { $prepaid[$d['id']] = true; continue; }
                 $pick = null;
-                foreach ($cands as $k) if ($occs[$k]['amount'] - $occs[$k]['used'] >= $amt) { $pick = $k; break; }
+                foreach ($cands as $k) { $a = $need($d, $occs[$k]['date']); if ($a > 0 && $occs[$k]['amount'] - $occs[$k]['used'] >= $a) { $pick = $k; break; } }
                 if (!$pick) { usort($cands, fn($a, $b) => ($occs[$b]['amount'] - $occs[$b]['used']) <=> ($occs[$a]['amount'] - $occs[$a]['used'])); $pick = $cands[0]; }
-                $add($pick, $d, $amt, false);
+                $add($pick, $d, $need($d, $occs[$pick]['date']), false);
             }
         }
+        foreach ($occs as $k => $o) $occs[$k]['pending'] = array_sum(array_column($o['items'], 'left'));
         $ym = J::ym($jy, $jm);
         [$from, $to] = J::monthRange($jy, $jm);
         $month = array_values(array_filter($occs, fn($o) => $o['ym'] === $ym));
         $inMonth = fn($d) => $d['due_date'] >= $from && $d['due_date'] <= $to;
-        $un = array_values(array_filter($dues, fn($d) => !isset($assigned[$d['id']]) && $inMonth($d)));
+        $un = array_values(array_filter($dues, fn($d) => !isset($assigned[$d['id']]) && !isset($prepaid[$d['id']]) && $d['status'] !== 'paid' && $inMonth($d)));
         $prev = [];
         foreach ($dues as $d) if (isset($assigned[$d['id']]) && $inMonth($d) && $occs[$assigned[$d['id']]]['ym'] < $ym)
-            $prev[] = ['due' => $d, 'amount' => (int)round($d['amount'] * Repo::share($d, $uid)), 'source' => $occs[$assigned[$d['id']]]];
+            $prev[] = ['due' => $d, 'amount' => $amtOf[$d['id']], 'source' => $occs[$assigned[$d['id']]]];
         return ['occs' => $month, 'unassigned' => $un, 'prev' => $prev];
     }
 }
@@ -186,8 +217,10 @@ trait BotIncome {
             }
             if (!$o['items']) $t .= "   — موردی تخصیص نیافته\n";
             $free = $o['amount'] - $o['used'];
-            $t .= '   ' . ($free >= 0 ? '🔒 کنار گذاشتن: ' . U::n($o['used']) . ' | 🟢 آزاد: ' . U::n($free) : '⚠️ <b>کسری: ' . U::toman(-$free) . '</b>') . "\n";
-            if (!$done && $o['items']) $kb[] = [U::btn('✅ از ' . $o['title'] . ' کنار گذاشتم', "i:sa:{$o['income_id']}:$off")];
+            $spent = $o['used'] - $o['pending'];
+            $t .= '   🔒 کنار بگذار: ' . U::n($o['pending']) . ($spent > 0 ? ' | ✅ پرداخت‌شده: ' . U::n($spent) : '') . "\n";
+            $t .= '   ' . ($free >= 0 ? '🟢 آزاد: ' . U::n($free) : '⚠️ <b>کسری: ' . U::toman(-$free) . '</b>') . "\n";
+            if (!$done && $o['pending'] > 0) $kb[] = [U::btn('✅ از ' . $o['title'] . ' کنار گذاشتم', "i:sa:{$o['income_id']}:$off")];
         }
         if ($p['prev']) {
             $t .= "\n📎 <b>این ماه، از واریزهای ماه قبل</b>\n";
@@ -200,7 +233,7 @@ trait BotIncome {
         if ($p['unassigned']) {
             $t .= "\n⚪️ <b>بدون منبع</b>\n";
             foreach ($p['unassigned'] as $d) {
-                $amt = $d['amount'] * Repo::share($d, $uid); $totUn += $amt;
+                $amt = ($d['amount'] - $d['paid_amount']) * Repo::share($d, $uid); $totUn += $amt;
                 $t .= '   • ' . U::h($d['title']) . ' (' . J::fmt($d['due_date']) . ') — ' . U::n($amt) . "\n";
             }
         }
