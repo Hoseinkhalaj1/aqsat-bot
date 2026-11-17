@@ -197,6 +197,19 @@ class Repo {
         return $sum;
     }
     public static function setDueAmount(int $dueId, int $amt) { DB::q("UPDATE dues SET amount=? WHERE id=?", [$amt, $dueId]); self::recalc($dueId); }
+    /** default date for an extra installment: one period after the last one, on the loan's anchor day */
+    public static function nextLoanDate(array $ob): string {
+        $last = DB::val("SELECT MAX(due_date) FROM dues WHERE obligation_id=?", [$ob['id']]) ?: date('Y-m-d');
+        [$jy, $jm] = J::fromG($last);
+        return J::addMonths($jy, $jm, (int)($ob['anchor_day'] ?: J::fromG($last)[2]), max(1, (int)$ob['period_n']));
+    }
+    /** append one installment to a loan; reopens a finished loan */
+    public static function addDue(int $obId, int $amount, string $date): int {
+        $seq = (int)DB::val("SELECT COALESCE(MAX(seq),0)+1 FROM dues WHERE obligation_id=?", [$obId]);
+        $id = DB::insert("INSERT INTO dues (obligation_id,seq,due_date,amount) VALUES (?,?,?,?)", [$obId, $seq, $date, $amount]);
+        DB::q("UPDATE obligations SET status='active' WHERE id=? AND status='done'", [$obId]);
+        return $id;
+    }
     public static function setDueDate(int $dueId, string $g) { DB::q("UPDATE dues SET due_date=? WHERE id=?", [$g, $dueId]); DB::q("DELETE FROM reminder_log WHERE due_id=?", [$dueId]); }
 
     /** dues of a user in a date range (owned or shared) */

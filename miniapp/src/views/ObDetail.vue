@@ -50,6 +50,7 @@
         <button v-if="ob.type === 'loan' && ob.status === 'active'" class="btn blue" @click="settle" style="flex: 1 1 auto; white-space: nowrap"><Icon name="flag" :size="18" />تسویه کامل</button>
         <button v-if="ob.type === 'recurring' && ob.owner" class="btn blue" @click="toggleStop" style="flex: 1 1 auto; white-space: nowrap"><Icon :name="ob.status === 'active' ? 'pause' : 'play'" :size="18" />{{ ob.status === 'active' ? 'توقف' : 'ادامه' }}</button>
         <router-link v-if="ob.owner" :to="'/edit/' + ob.id" class="btn" style="flex: 1 1 auto; white-space: nowrap"><Icon name="edit" :size="18" />ویرایش</router-link>
+        <button v-if="ob.owner && ob.type === 'loan'" class="btn blue" style="flex: 1 1 auto; white-space: nowrap" @click="openAdd"><Icon name="plus" :size="18" />افزودن قسط</button>
         <button v-if="ob.owner" class="btn red" @click="del" style="flex: 1 1 auto; white-space: nowrap"><Icon name="trash" :size="18" />حذف</button>
       </div>
 
@@ -86,6 +87,14 @@
         </template>
       </div>
     </Sheet>
+    <Sheet v-model="addOpen" title="افزودن قسط">
+      <div class="col" style="gap: 14px">
+        <div class="lbl">قسط {{ fa(d ? d.dues.length + 1 : 0) }} به انتهای «{{ ob?.title }}» اضافه می‌شود.</div>
+        <div class="field"><label for="qa">مبلغ قسط</label><MoneyInput id="qa" v-model="addAmount" /></div>
+        <div class="field"><div class="fh">تاریخ سررسید</div><DateField v-model="addDate" :today="today" /></div>
+        <button class="btn mint block" :disabled="!addAmount || !addDate" @click="addDue"><Icon name="plus" :size="18" />افزودن</button>
+      </div>
+    </Sheet>
     <Sheet v-model="srcOpen" title="منبع پرداخت">
       <div class="col" style="gap: 8px">
         <button class="pill" :class="{ on: !ob?.source }" style="text-align: right" @click="setSrc(0)">خودکار (طبق حالت کلی)</button>
@@ -111,6 +120,7 @@ import { fa, money, toman, mil, jd, jfull, rel, weekday, period, TYPE } from '..
 const route = useRoute(), router = useRouter()
 const d = ref(null), payDue = ref(null), dueSel = ref(null), srcOpen = ref(false), limit = ref(24)
 const edAmount = ref(0), edDate = ref('')
+const addOpen = ref(false), addAmount = ref(0), addDate = ref('')
 const ob = computed(() => d.value?.ob)
 const today = computed(() => store.boot.today)
 const cat = computed(() => store.boot.cats.find((c) => c.id === ob.value?.cat))
@@ -135,6 +145,16 @@ async function saveDue() {
 }
 async function settle() { if (await ask('مانده «' + ob.value.title + '» (' + toman(ob.value.left) + ') پرداخت‌شده ثبت شود؟')) try { await act('settle', { id: ob.value.id }, 'تسویه شد') } catch (e) {} }
 async function toggleStop() { try { await act(ob.value.status === 'active' ? 'stop' : 'resume', { id: ob.value.id }, ob.value.status === 'active' ? 'متوقف شد' : 'فعال شد') } catch (e) {} }
+function openAdd() {
+  const last = d.value.dues[d.value.dues.length - 1]
+  addAmount.value = last ? last.amount : 0
+  addDate.value = d.value.next_date || today.value
+  addOpen.value = true
+}
+async function addDue() {
+  addOpen.value = false
+  try { await act('due_add', { ob_id: ob.value.id, amount: addAmount.value, date: addDate.value }, 'قسط جدید اضافه شد') } catch (e) {}
+}
 async function del() { if (await ask('«' + ob.value.title + '» و همه سوابقش حذف شود؟')) try { await act('del', { id: ob.value.id }, 'حذف شد'); router.replace('/obs') } catch (e) {} }
 async function setSrc(id) { srcOpen.value = false; try { await act('assign', { ob_id: ob.value.id, income_id: id }, 'ذخیره شد') } catch (e) {} }
 </script>

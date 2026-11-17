@@ -212,7 +212,7 @@ class Api {
             $o['payments'] = $pays[(int)$d['id']] ?? [];
             $dues[] = $o;
         }
-        return ['ob' => self::obOut($ob), 'dues' => $dues];
+        return ['ob' => self::obOut($ob), 'dues' => $dues, 'next_date' => $ob['type'] === 'loan' ? Repo::nextLoanDate($ob) : null];
     }
 
     private static function a_pay(array $in): array {
@@ -292,6 +292,17 @@ class Api {
             foreach (DB::all("SELECT id FROM dues WHERE obligation_id=? AND status='pending'", [$ob['id']]) as $r) Repo::setDueAmount((int)$r['id'], $amt);
         }
         return [];
+    }
+
+    private static function a_due_add(array $in): array {
+        $ob = self::owned(self::int($in['ob_id'] ?? 0));
+        if ($ob['type'] !== 'loan') throw new ApiError('bad_type');
+        $amt = self::money($in['amount'] ?? 0);
+        $date = !empty($in['date']) ? self::gdate($in['date']) : Repo::nextLoanDate($ob);
+        $id = Repo::addDue((int)$ob['id'], $amt, $date);
+        $p = Repo::partnerOf($ob, self::$uid);
+        if ($p) TG::send($p, "👥 " . U::h(self::$u['name']) . " یک قسط " . U::toman($amt) . " با سررسید " . J::fmt($date) . " به «" . U::h($ob['title']) . "» اضافه کرد.");
+        return ['id' => $id];
     }
 
     private static function a_due_update(array $in): array {

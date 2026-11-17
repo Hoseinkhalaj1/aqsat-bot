@@ -33,6 +33,7 @@
 | `ob` | `id` | جزئیات یک تعهد و همه سررسیدها با پرداخت‌ها |
 | `create` | `type, title, category_id, creditor, first_date, amounts[] \| amount, period_unit, period_n, paid_count, shared_user_id, owner_share, income_id` | افزودن |
 | `ob_update` | `id, title?, category_id?, creditor?, note?, amount?` | ویرایش (فقط مالک) |
+| `due_add` | `ob_id, amount, date?` | افزودن قسط به انتهای وام (فقط مالک؛ بدون تاریخ = یک دوره بعد از قسط آخر) |
 | `due_update` | `id, amount?, date?` | ویرایش یک سررسید (فقط مالک) |
 | `pay` | `due_id, amount?` | پرداخت کامل یا جزئی |
 | `undo` | `due_id` | لغو آخرین پرداخت |

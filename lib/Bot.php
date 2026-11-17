@@ -279,6 +279,7 @@ class Bot {
         if ($ob['type'] === 'loan' && $ob['status'] === 'active') $row[] = U::btn('💰 تسویه کامل', "o:settle:$id");
         if ($ob['type'] === 'recurring' && $owner) $row[] = $ob['status'] === 'active' ? U::btn('⏸ توقف', "o:stop:$id") : U::btn('▶️ ادامه', "o:resume:$id");
         if ($row) $kb[] = $row;
+        if ($owner && $ob['type'] === 'loan') $kb[] = [U::btn('➕ افزودن قسط', "o:addq:$id")];
         if ($owner) $kb[] = [U::btn('✏️ ویرایش', "o:edit:$id"), U::btn('🗑 حذف', "o:del:$id")];
         if ($ob['status'] === 'active') $kb[] = [U::btn('🔗 از کدام درآمد؟', "i:ao:$id")];
         $kb[] = [U::btn('🔙 لیست', 'l:all')];
@@ -316,6 +317,22 @@ class Bot {
                 self::listMenu('all');
                 return;
             case 'edit': if ($owner) self::editMenu($ob); return;
+            case 'addq':
+                if (!$owner || $ob['type'] !== 'loan') return;
+                $lastAmt = (int)DB::val("SELECT amount FROM dues WHERE obligation_id=? ORDER BY seq DESC LIMIT 1", [$id]);
+                self::setState('q_amt', ['id' => $id]);
+                self::out("➕ <b>افزودن قسط به «" . U::h($ob['title']) . "»</b>\nمبلغ قسط جدید را بنویسید:\n<i>(مبلغ قسط آخر: " . U::toman($lastAmt) . ")</i>",
+                    U::ikb([[U::btn('همان ' . U::n($lastAmt), "o:addqa:$id")], [U::btn(self::CANCEL, 'x')]]));
+                return;
+            case 'addqa': // same amount as the last installment
+                if (!$owner || self::state() !== 'q_amt') return;
+                self::askAddqDate($ob, (int)DB::val("SELECT amount FROM dues WHERE obligation_id=? ORDER BY seq DESC LIMIT 1", [$id]));
+                return;
+            case 'addqd': // default date
+                $sd = self::sdata();
+                if (!$owner || self::state() !== 'q_date' || (int)($sd['id'] ?? 0) !== $id) return;
+                self::finishAddq($ob, (int)$sd['amt'], Repo::nextLoanDate($ob));
+                return;
         }
     }
 
@@ -424,6 +441,20 @@ class Bot {
     }
 
     /* ================= Text-input states ================= */
+    private static function askAddqDate(array $ob, int $amt) {
+        self::setState('q_date', ['id' => (int)$ob['id'], 'amt' => $amt]);
+        $def = Repo::nextLoanDate($ob);
+        self::out("📅 تاریخ سررسید قسط جدید را به شمسی بنویسید (مثل " . U::fa('1405/09/15') . "):",
+            U::ikb([[U::btn('📅 ' . J::fmt($def) . ' (یک دوره بعد از قسط آخر)', "o:addqd:{$ob['id']}")], [U::btn(self::CANCEL, 'x')]]));
+    }
+    private static function finishAddq(array $ob, int $amt, string $date) {
+        self::setState(null);
+        Repo::addDue((int)$ob['id'], $amt, $date);
+        $p = Repo::partnerOf($ob, self::uid());
+        if ($p) TG::send($p, "👥 " . U::h(self::$u['name']) . " یک قسط " . U::toman($amt) . " با سررسید " . J::fmt($date) . " به «" . U::h($ob['title']) . "» اضافه کرد.");
+        self::obView((int)$ob['id'], "➕ قسط جدید اضافه شد: " . U::toman($amt) . " — " . J::fmt($date) . "\n\n");
+    }
+
     private static function stateInput(string $text) {
         $s = self::state(); $d = self::sdata(); $uid = self::uid();
         if ($s === 'wiz') { self::wizard($text, null); return; }
@@ -450,6 +481,20 @@ class Bot {
                 self::setState(null);
                 Repo::setDueDate((int)$d['id'], $g);
                 self::dueView(Repo::due((int)$d['id'], $uid), '0', "📅 تاریخ بروزرسانی شد.\n\n");
+                return;
+            case 'q_amt': case 'q_date':
+                $ob = Repo::ob((int)$d['id'], $uid);
+                if (!$ob || (int)$ob['user_id'] !== $uid) { self::setState(null); return; }
+                self::$msgId = null;
+                if ($s === 'q_amt') {
+                    $amt = U::money($text);
+                    if (!$amt) { TG::send(self::$chat, '❗️ مبلغ نامعتبر است. دوباره بنویسید:', self::cancelKb()); return; }
+                    self::askAddqDate($ob, $amt);
+                } else {
+                    $g = J::parse($text);
+                    if (!$g) { TG::send(self::$chat, '❗️ تاریخ نامعتبر است. مثل ' . U::fa('1405/09/15') . ' بنویسید:', self::cancelKb()); return; }
+                    self::finishAddq($ob, (int)$d['amt'], $g);
+                }
                 return;
             case 'e_title': case 'e_cred': case 'e_note': case 'e_amt':
                 $ob = Repo::ob((int)$d['id'], $uid);
